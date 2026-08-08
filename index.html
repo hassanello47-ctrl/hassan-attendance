@@ -312,7 +312,7 @@ a{color:var(--amber-dark);}
   <div class="modal-box">
     <h3 id="qrModalName"></h3>
     <div class="mcode mono" id="qrModalCode"></div>
-    <div id="qrCanvasHolder"></div>
+    <div id="qrCanvasHolder"><img id="qrImg" style="width:220px;height:220px;display:block;margin:0 auto;" alt="QR"></div>
     <button class="btn" onclick="closeQrModal()">تمام</button>
   </div>
 </div>
@@ -334,7 +334,6 @@ a{color:var(--amber-dark);}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-app-compat.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-firestore-compat.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-auth-compat.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
 <script>
 let db, auth;
@@ -617,9 +616,8 @@ async function lookupStudent(){
 function showQrModal(code, name){
   document.getElementById('qrModalName').textContent = name;
   document.getElementById('qrModalCode').textContent = code;
-  const holder = document.getElementById('qrCanvasHolder');
-  holder.innerHTML = '';
-  new QRCode(holder, { text: code, width: 220, height: 220, colorDark: '#16302f', colorLight: '#ffffff' });
+  const img = document.getElementById('qrImg');
+  img.src = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(code);
   document.getElementById('qrModal').classList.remove('hidden');
 }
 function closeQrModal(){
