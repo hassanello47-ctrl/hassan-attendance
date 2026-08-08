@@ -148,6 +148,35 @@ a{color:var(--amber-dark);}
 .pill-select{display:flex; flex-wrap:wrap; gap:6px; margin-top:6px;}
 .pill{border:1.5px solid var(--line); background:#fff; border-radius:20px; padding:6px 14px; font-size:13px; cursor:pointer; font-weight:600;}
 .pill.active{background:var(--ink); border-color:var(--ink); color:var(--amber);}
+
+.btn.qr{background:var(--ink); color:var(--amber); width:auto; padding:6px 10px; font-size:11px; margin-top:0;}
+
+.modal-overlay{
+  position:fixed; inset:0; background:rgba(22,48,47,0.72); z-index:200;
+  display:flex; align-items:center; justify-content:center; padding:20px;
+}
+.modal-box{
+  background:#fff; border-radius:16px; padding:22px; max-width:340px; width:100%;
+  text-align:center;
+}
+.modal-box h3{font-size:16px; margin-bottom:4px;}
+.modal-box .mcode{color:var(--muted); font-size:13px; margin-bottom:14px;}
+#qrCanvasHolder{display:flex; justify-content:center; margin-bottom:14px;}
+
+.scan-video-wrap{
+  position:relative; border-radius:14px; overflow:hidden; background:#000;
+  aspect-ratio:1/1; margin-bottom:12px;
+}
+.scan-video-wrap video{width:100%; height:100%; object-fit:cover;}
+.scan-frame{
+  position:absolute; inset:14%; border:3px solid var(--amber); border-radius:14px;
+  box-shadow:0 0 0 2000px rgba(0,0,0,0.35);
+}
+.scan-status{font-size:13.5px; color:var(--ink-soft); min-height:20px; margin-bottom:10px;}
+.scanned-tag{
+  display:inline-flex; align-items:center; gap:5px; background:#eaf4ee; color:var(--good);
+  border-radius:20px; padding:4px 10px; font-size:12px; font-weight:700; margin:2px;
+}
 </style>
 </head>
 <body>
@@ -233,6 +262,7 @@ a{color:var(--amber-dark);}
         <select id="attGroupSelect" onchange="renderAttendanceList()"></select>
         <label>التاريخ</label>
         <input type="date" id="attDate">
+        <button class="btn secondary" onclick="openScanner()">📷 امسح كود QR للطلاب</button>
         <div id="attList" style="margin-top:10px;"></div>
         <button class="btn" onclick="saveAttendance()">حفظ الحضور</button>
       </div>
@@ -277,9 +307,35 @@ a{color:var(--amber-dark);}
 
 <div class="toast" id="toast"></div>
 
+<!-- QR DISPLAY MODAL -->
+<div id="qrModal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <h3 id="qrModalName"></h3>
+    <div class="mcode mono" id="qrModalCode"></div>
+    <div id="qrCanvasHolder"></div>
+    <button class="btn" onclick="closeQrModal()">تمام</button>
+  </div>
+</div>
+
+<!-- SCANNER MODAL -->
+<div id="scanModal" class="modal-overlay hidden">
+  <div class="modal-box" style="max-width:380px;">
+    <h3 style="margin-bottom:10px;">امسح كود الطالب</h3>
+    <div class="scan-video-wrap">
+      <video id="scanVideo" playsinline muted autoplay></video>
+      <div class="scan-frame"></div>
+    </div>
+    <div class="scan-status" id="scanStatus">وجّه الكاميرا على كود الطالب</div>
+    <div id="scannedTags" style="margin-bottom:10px;"></div>
+    <button class="btn secondary" onclick="closeScanner()">إغلاق الكاميرا</button>
+  </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-app-compat.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-firestore-compat.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-auth-compat.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
 <script>
 let db, auth;
 let students = [];
@@ -301,14 +357,16 @@ function saveConfig(){
 
   let cfg = null;
 
+  // Try 1: already valid JSON (keys already quoted, e.g. pasted from our own instructions)
   try{ cfg = JSON.parse(cleaned); }catch(e){}
 
+  // Try 2: raw JS object literal (unquoted keys, single quotes) — only quote keys that aren't already quoted
   if(!cfg){
     try{
       const fixed = cleaned
         .replace(/'/g, '"')
         .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, '$1"$2":')
-        .replace(/,(\s*[}\]])/g, '$1');
+        .replace(/,(\s*[}\]])/g, '$1'); // remove trailing commas
       cfg = JSON.parse(fixed);
     }catch(e){}
   }
@@ -432,6 +490,7 @@ function renderStudentsList(){
         <div class="sname">${s.name}</div>
         <div class="slevel">${s.level} · ${s.group}</div>
       </div>
+      <button class="btn small qr" onclick="showQrModal('${s.code}','${s.name.replace(/'/g,"")}')">QR</button>
       <button class="btn small danger" onclick="deleteStudent('${s.id}','${s.name.replace(/'/g,"")}')">حذف</button>
     </div>
   `).join('');
@@ -554,7 +613,89 @@ async function lookupStudent(){
   `;
 }
 
+/* ---------- QR display ---------- */
+function showQrModal(code, name){
+  document.getElementById('qrModalName').textContent = name;
+  document.getElementById('qrModalCode').textContent = code;
+  const holder = document.getElementById('qrCanvasHolder');
+  holder.innerHTML = '';
+  new QRCode(holder, { text: code, width: 220, height: 220, colorDark: '#16302f', colorLight: '#ffffff' });
+  document.getElementById('qrModal').classList.remove('hidden');
+}
+function closeQrModal(){
+  document.getElementById('qrModal').classList.add('hidden');
+}
+
+/* ---------- QR scanning (attendance) ---------- */
+let scanStream = null;
+let scanRAF = null;
+let scannedCodesThisSession = new Set();
+
+function openScanner(){
+  const group = document.getElementById('attGroupSelect').value;
+  if(!group){ showToast('اختار المجموعة الأول'); return; }
+  scannedCodesThisSession = new Set();
+  document.getElementById('scannedTags').innerHTML = '';
+  document.getElementById('scanStatus').textContent = 'وجّه الكاميرا على كود الطالب';
+  document.getElementById('scanModal').classList.remove('hidden');
+
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(stream => {
+    scanStream = stream;
+    const video = document.getElementById('scanVideo');
+    video.srcObject = stream;
+    video.play();
+    scanLoop();
+  }).catch(err=>{
+    document.getElementById('scanStatus').textContent = 'مش قادر أفتح الكاميرا: ' + err.message;
+  });
+}
+
+function scanLoop(){
+  const video = document.getElementById('scanVideo');
+  if(video.readyState === video.HAVE_ENOUGH_DATA){
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(imageData.data, canvas.width, canvas.height);
+    if(code && code.data){
+      handleScanResult(code.data.trim());
+    }
+  }
+  scanRAF = requestAnimationFrame(scanLoop);
+}
+
+function handleScanResult(scannedCode){
+  const row = document.querySelector('#attList .srow[data-code="' + CSS.escape(scannedCode) + '"]');
+  const statusEl = document.getElementById('scanStatus');
+  if(!row){
+    statusEl.textContent = '⚠️ الكود ده مش في المجموعة دي';
+    return;
+  }
+  if(scannedCodesThisSession.has(scannedCode)){
+    statusEl.textContent = 'تم تسجيله بالفعل';
+    return;
+  }
+  scannedCodesThisSession.add(scannedCode);
+  const presentBtn = row.querySelector('.toggle.present');
+  setAtt(presentBtn, 'present');
+  const name = row.querySelector('.sname').textContent;
+  statusEl.textContent = '✓ تم تسجيل: ' + name;
+  const tag = document.createElement('span');
+  tag.className = 'scanned-tag';
+  tag.textContent = '✓ ' + name;
+  document.getElementById('scannedTags').appendChild(tag);
+}
+
+function closeScanner(){
+  if(scanRAF) cancelAnimationFrame(scanRAF);
+  if(scanStream){ scanStream.getTracks().forEach(t=>t.stop()); scanStream = null; }
+  document.getElementById('scanModal').classList.add('hidden');
+}
+
 initApp();
 </script>
 </body>
-  </html>
+</html>
